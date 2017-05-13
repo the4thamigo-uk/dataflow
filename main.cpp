@@ -7,17 +7,17 @@
 
 using namespace std;
 
-class BaseValue {
+class Node {
 
     public:
-        virtual ~BaseValue() {};
+        virtual ~Node() {};
 
         virtual void clear() = 0;
         virtual bool isSet() const = 0;
 };
 
 template<typename T> class Value :
-    public BaseValue {
+    public Node {
 
     T _value = {};
     bool _isSet = false;
@@ -57,20 +57,28 @@ template<typename T> class Value :
         }
 };
 
-
 class Graph {
 
-    std::map<BaseValue*, std::function<void()>> _functions;
-    std::map<BaseValue*, std::vector<const BaseValue*>> _values;
+    typedef std::function<void()> Calculator;
+    std::map<const Node*, Calculator> _functions;
+
+    typedef std::vector<const Node*> NodeList;
+    std::map<const Node*, NodeList> _values;
+
+    private:
+        template<typename F, typename R, typename... V> auto bind(const F& f, Value<R>* r, const Value<V>* ... v) {
+            return Calculator([f, r, v...] () {r->set(f(v->get()...));});
+        }
 
     public:
-        template<typename F, typename R, typename... V> auto bind(const F& f, Value<R>* r, const Value<V>* ... v) {
-            return std::function<void()>([f, r, v...] () {r->set(f(v->get()...));});
-        }
-        template<typename F, typename R, typename ...V> void add(const F& f, Value<R>* r, const Value<V>* ... v) {
+        template<typename F, typename ...V> auto add(const F& f, const Value<V>* ... v) {
+            typedef Value<decltype(f(v->get()...))> R;
+            auto* r = new R{};
             _functions[r] = bind(f, r, v...);
-            _values[r] = std::vector<const BaseValue*>(std::initializer_list<const BaseValue*>{v...});
+            _values[r] = NodeList(std::initializer_list<const Node*>{v...});
+            return r;
         }
+
         size_t pass() {
             size_t remaining = 0;
             for(auto& kv: _functions) {
@@ -90,52 +98,68 @@ class Graph {
             // all values are calculated
             return remaining;
         }
-        void calculate() {
+
+        void repeated() {
             while(pass() > 0) {
                 // repeat
             }
         }
+
+        void recursive_bottomup() {
+
+            std::function<void(const Node*)> calculate;
+            calculate = [this, &calculate] (const Node* value) {
+                if(value->isSet())
+                    return;
+
+                const auto& f = _functions[value];
+                const auto& args = _values[value];
+                std::for_each(args.cbegin(), args.cend(), calculate);
+                f();
+            };
+
+            for(const auto& kv: _functions) {
+                auto value = kv.first;
+                calculate(value);
+            }
+        }
+
+        void recursive_topdown() {
+
+        }
+
+        void stack_bottomup() {
+        }
+
+        void stack_topdown() {
+        }
+
+        void multithreaded() {
+
+        }
 };
-
-
-
-
-
-// functions are always pure
-// the same function can appear many times in the same graph
-// each value can appear only once in the same graph
-// a value is bound to a function return
-// a function is bound to a set of argument values
-
-// user defines a set of functions and calls dataflow.bind(f, v...) => w
-// bind asserts the values are valid, and computes the maximum depth of these values
-// bind attaches a new value w to the the f and adds it to the list of values, sets the depth + 1
-// bind stores the set of values against the function
-// w is placed in an 'unevaluated' queue U ordered by their depth in the tree
-// we look through U to see if the bound function can be evaluated (i.e. its argument values are evaluated)
-// if so it is evaluated and value is cached, and removed from the list
 
 int main()
 {
-    // one ay using explicit value objects.
-    auto fquote = [](double mid, double spread) {
-        return std::make_pair(mid-spread, mid+spread);
-        };
-    auto fwiden = [](const std::pair<double, double>& quote, double spread) { return std::make_pair(quote.first-spread, quote.second+spread);};
+    typedef std::pair<double, double> Quote;
 
-    Value<double> spread {0.1};
+    auto fquote = [](double mid, double spread) {
+        return Quote{};
+    };
+
+    auto fwiden = [](const Quote& quote, double spread) { return Quote(quote.first-spread, quote.second+spread);};
+
     Value<double> mid = {1};
-    Value<std::pair<double, double>> quote1;
-    Value<std::pair<double, double>> quote2;
+    Value<double> spread {0.1};
 
     Graph g;
-    g.add(fquote, &quote1, &mid, &spread);
-    g.add(fwiden, &quote2, &quote1, &spread);
+    auto quote1 = g.add(fquote, &mid, &spread);
+    auto quote2 = g.add(fwiden, quote1, &spread);
 
-    g.calculate();
+    g.recursive_bottomup();
 
-    cout << quote1.get().first << "," << quote1.get().second << endl;
-    cout << quote2.get().first << "," << quote2.get().second << endl;
+    cout << quote1->get().first << "," << quote1->get().second << endl;
+    cout << quote2->get().first << "," << quote2->get().second << endl;
 
     return 0;
 }
