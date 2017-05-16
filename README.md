@@ -1,6 +1,6 @@
 # dataflow
 
-This repo is the very early experimental code that will eventually become a library that implements a dataflow model on a directed acyclic graph (DAG).
+This repo is the very early experimental code that will eventually become a C++11 library that implements a dataflow model on a directed acyclic graph (DAG).
 
 The idea is inspired by various financial software systems that have this use case e.g. asset pricing models defined by a graph of spreads to other assets.
 
@@ -12,4 +12,6 @@ The aims of the library are to :
 4) To allow the graph to be updated in between calculations
 5) Be statically type-safe throughout
 6) To be thread-safe to the extent that client code can call the library on multiple threads.
-6) Strive for simplicity of use
+6) Strive for simplicity of use - Not necessarily of implementation
+7) Minimal dependencies
+8) Header only library
