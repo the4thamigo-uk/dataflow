@@ -186,17 +186,31 @@ int main()
         return Quote{quote.first-spread, quote.second+spread};
     };
 
+    auto fspan = [](const Quote& quote1, const Quote& quote2) {
+        return Quote{std::min(quote1.first, quote2.first), std::max(quote1.second, quote2.second)};
+    };
+
+    auto fshift = [](const Quote& quote, double shift) {
+        return Quote{quote.first+shift, quote.second+shift};
+    };
+
     Graph g;
     auto mid = g.add([]() {return 1.0;});
     auto spread = g.add([]() {return 0.1;});
+    auto shift = g.add([]() {return 0.5;});
 
-    auto quote1 = g.add(fquote, mid, spread);
-    auto quote2 = g.add(fwiden, quote1, spread);
+    std::map<std::string, Value<Quote>*> quotes;
+    quotes["1"] = g.add(fquote, mid, spread);
+    quotes["2"] = g.add(fwiden, quotes["1"], spread);
+    quotes["3"] = g.add(fwiden, quotes["2"], spread);
+    quotes["4"] = g.add(fshift, quotes["2"], shift);
+    quotes["5"] = g.add(fspan, quotes["4"], quotes["1"]);
 
     g.multithreaded_level_synchronous();
 
-    cout << quote1->get().first << "," << quote1->get().second << endl;
-    cout << quote2->get().first << "," << quote2->get().second << endl;
+    for(const auto& quote: quotes) {
+        cout << quote.first << ":" << quote.second->get().first << "," << quote.second->get().second << endl;
+    }
 
     return 0;
 }
