@@ -4,6 +4,8 @@
 #include <vector>
 #include <exception>
 #include <algorithm>
+#include <utility>
+#include <future>
 
 using namespace std;
 
@@ -65,6 +67,9 @@ class Graph {
     typedef std::vector<const Node*> NodeList;
     std::map<const Node*, NodeList> _values;
 
+    std::map<const Node*, int> _nodeLevels;
+    std::map<int, NodeList> _levels;
+
     private:
         template<typename F, typename R, typename... V> auto bind(const F& f, Value<R>* r, const Value<V>* ... v) {
             return Calculator([f, r, v...] () {r->set(f(v->get()...));});
@@ -75,7 +80,16 @@ class Graph {
             typedef Value<decltype(f(v->get()...))> R;
             auto* r = new R{};
             _functions[r] = bind(f, r, v...);
-            _values[r] = NodeList(std::initializer_list<const Node*>{v...});
+            const auto& args = _values[r] = std::initializer_list<const Node*>{v...};
+
+            // TODO assert all args are in the nodes of this graph
+
+            std::vector<int> levels;
+            std::transform(args.cbegin(), args.cend(), std::back_inserter(levels), [this](auto arg){ return _nodeLevels.find(arg)->second;});
+            auto maxLevel = std::max_element(levels.cbegin(), levels.cend());
+            auto level = maxLevel == levels.end() ? 0 : *maxLevel + 1;
+            _nodeLevels[r] = level;
+            _levels[level].push_back(r);
             return r;
         }
 
@@ -134,8 +148,29 @@ class Graph {
         void stack_topdown() {
         }
 
-        void multithreaded() {
+        void by_level() {
+            for(const auto& level : _levels) {
+                const auto& nodes = level.second;
+                std::for_each(nodes.cbegin(), nodes.cend(),
+                    [this](const auto& node) {
+                        _functions[node]();
+                    });
+            }
+        }
 
+        void multithreaded_level_synchronous() {
+            for(const auto& level : _levels) {
+                const auto& nodes = level.second;
+                std::vector<std::future<void>> tasks;
+                std::transform(nodes.cbegin(), nodes.cend(), std::back_inserter(tasks),
+                    [this](const auto& node) {
+                        return std::async(_functions[node]);
+                    });
+                std::for_each(tasks.cbegin(), tasks.cend(),
+                    [](const auto& task) {
+                        task.wait();
+                    });
+            }
         }
 };
 
@@ -144,19 +179,21 @@ int main()
     typedef std::pair<double, double> Quote;
 
     auto fquote = [](double mid, double spread) {
-        return Quote{};
+        return Quote{mid - spread, mid+spread};
     };
 
-    auto fwiden = [](const Quote& quote, double spread) { return Quote(quote.first-spread, quote.second+spread);};
-
-    Value<double> mid = {1};
-    Value<double> spread {0.1};
+    auto fwiden = [](const Quote& quote, double spread) {
+        return Quote{quote.first-spread, quote.second+spread};
+    };
 
     Graph g;
-    auto quote1 = g.add(fquote, &mid, &spread);
-    auto quote2 = g.add(fwiden, quote1, &spread);
+    auto mid = g.add([]() {return 1.0;});
+    auto spread = g.add([]() {return 0.1;});
 
-    g.recursive_bottomup();
+    auto quote1 = g.add(fquote, mid, spread);
+    auto quote2 = g.add(fwiden, quote1, spread);
+
+    g.multithreaded_level_synchronous();
 
     cout << quote1->get().first << "," << quote1->get().second << endl;
     cout << quote2->get().first << "," << quote2->get().second << endl;
