@@ -24,12 +24,14 @@ class Node {
 
         virtual void clear() = 0;
         virtual bool has_value() const = 0;
+        virtual int count() const = 0;
 };
 
 template<typename T> class Value : public Node {
 
     std::experimental::optional<T> _value;
     std::experimental::optional<std::exception> _e;
+    int _count = 0;
 
     public:
 
@@ -41,6 +43,7 @@ template<typename T> class Value : public Node {
         void set(const T& value) {
             _e = {};
             _value = value;
+            _count++;
         }
 
         T get() const {
@@ -59,6 +62,10 @@ template<typename T> class Value : public Node {
         virtual bool has_value() const {
             return (bool)_value;
         }
+
+        virtual int count() const {
+            return _count;
+        }
 };
 
 class graph {
@@ -68,14 +75,18 @@ class graph {
     std::map<std::shared_ptr<Node>, Calculator> _functions;
 
     typedef std::vector<std::shared_ptr<Node>> NodeList;
-    std::map<std::shared_ptr<Node>, NodeList> _values;
+    std::map<std::shared_ptr<Node>, NodeList> _children;
 
     std::map<std::shared_ptr<Node>, int> _nodeLevels;
     std::map<int, NodeList> _levels;
 
     private:
         template<typename F, typename R, typename... V> auto bind(const F& f, std::shared_ptr<Value<R>> r, std::shared_ptr<Value<V>> ... v) {
-            return Calculator([f, r, v...] () {r->set(f(v->get()...));});
+            return Calculator(
+                [f, r, v...] () {
+                    r->set(f(v->get()...));
+                    return r;
+                });
         }
 
     public:
@@ -83,12 +94,15 @@ class graph {
             typedef decltype(f(v->get()...)) R;
             auto r = std::make_shared<Value<R>>();
             _functions[r] = bind(f, r, v...);
+
             auto rn = std::static_pointer_cast<Node>(r);
-            const auto& args = _values[rn] = std::initializer_list<std::shared_ptr<Node>>{std::static_pointer_cast<Node>(v)...};
+            auto args = std::initializer_list<std::shared_ptr<Node>>{std::static_pointer_cast<Node>(v)...};
+            std::for_each(args.begin(), args.end(), [this, rn] (auto arg) {_children[arg].push_back(rn);});
+
             // TODO assert all args are in the nodes of this graph
 
             std::vector<int> levels;
-            std::transform(args.cbegin(), args.cend(), std::back_inserter(levels), [this](auto arg){ return _nodeLevels.find(arg)->second;});
+            std::transform(args.begin(), args.end(), std::back_inserter(levels), [this](auto arg){ return _nodeLevels.find(arg)->second;});
             auto maxLevel = std::max_element(levels.cbegin(), levels.cend());
             auto level = maxLevel == levels.end() ? 0 : *maxLevel + 1;
             _nodeLevels[r] = level;
@@ -99,10 +113,18 @@ class graph {
         void calculate() {
             for(const auto& level : _levels) {
                 const auto& nodes = level.second;
-                std::for_each(nodes.cbegin(), nodes.cend(),
-                    [this](const auto& node) {
+
+                for(const auto node : nodes) {
+                    if(!node->has_value()) {
+
+                        // mark next row dirty
+                        auto& children = _children[node];
+                        std::for_each(children.begin(), children.end(), [] (auto p) {p->clear();});
+
+                        // compute
                         _functions[node]();
-                    });
+                    };
+                }
             }
         }
 
@@ -110,10 +132,17 @@ class graph {
             for(const auto& level : _levels) {
                 const auto& nodes = level.second;
                 std::vector<std::future<void>> tasks;
-                std::transform(nodes.cbegin(), nodes.cend(), std::back_inserter(tasks),
-                    [this](const auto& node) {
-                        return std::async(_functions[node]);
-                    });
+                for(auto node : nodes) {
+                    if(!node->has_value()) {
+
+                        // mark next row dirty
+                        auto& children = _children[node];
+                        std::for_each(children.begin(), children.end(), [] (auto p) {p->clear();});
+
+                        // compute
+                        tasks.push_back(std::async(_functions[node]));
+                    }
+                }
                 std::for_each(tasks.cbegin(), tasks.cend(),
                     [](const auto& task) {
                         task.wait();

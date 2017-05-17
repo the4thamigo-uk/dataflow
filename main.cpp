@@ -58,12 +58,21 @@ int main()
     quotes["2"] = g.attach(fwiden, quotes["1"], spread);
     quotes["3"] = g.attach(fwiden, quotes["2"], spread);
     quotes["4"] = g.attach(fshift, quotes["2"], shift);
-    quotes["5"] = g.attach(fspan, quotes["4"], quotes["1"]);
+    quotes["5"] = g.attach(fwiden, quotes["3"], spread);
+    quotes["6"] = g.attach(fshift, quotes["5"], shift);
+
+    g.calculate_multithreaded();
+
+    quotes["2"]->clear();
+
+    g.calculate_multithreaded();
+
+    quotes["3"]->clear();
 
     g.calculate_multithreaded();
 
     for(const auto& quote: quotes) {
-        cout << quote.first << ":" << quote.second->get().first << "," << quote.second->get().second << endl;
+        cout << quote.second->count() << " - " << quote.first << ":" << quote.second->get().first << "," << quote.second->get().second << endl;
     }
 
     return 0;
