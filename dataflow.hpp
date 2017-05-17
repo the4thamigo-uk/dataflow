@@ -17,11 +17,6 @@ namespace dataflow {
 // TODO: consider how data is collated e.g. aggregate all prices into a single map
 // TODO: Add unit test framework
 
-
-
-
-
-
 class Node {
 
     public:
@@ -69,6 +64,7 @@ template<typename T> class Value : public Node {
 class graph {
 
     typedef std::function<void()> Calculator;
+
     std::map<std::shared_ptr<Node>, Calculator> _functions;
 
     typedef std::vector<std::shared_ptr<Node>> NodeList;
@@ -89,7 +85,6 @@ class graph {
             _functions[r] = bind(f, r, v...);
             auto rn = std::static_pointer_cast<Node>(r);
             const auto& args = _values[rn] = std::initializer_list<std::shared_ptr<Node>>{std::static_pointer_cast<Node>(v)...};
-
             // TODO assert all args are in the nodes of this graph
 
             std::vector<int> levels;
@@ -125,11 +120,8 @@ class graph {
                     });
             }
         }
-};
-
+    };
 
 }
-
-
 
 #endif // _\DATAFLOW_HPP_INCLUDED
