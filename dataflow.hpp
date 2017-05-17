@@ -38,7 +38,7 @@ template<typename T> class Value : public Node {
             _value = {};
         }
 
-        void set1(const T& value) {
+        void set(const T& value) {
             _e = {};
             _value = value;
         }
@@ -75,7 +75,7 @@ class graph {
 
     private:
         template<typename F, typename R, typename... V> auto bind(const F& f, std::shared_ptr<Value<R>> r, std::shared_ptr<Value<V>> ... v) {
-            return Calculator([f, r, v...] () {r->set1(f(v->get()...));});
+            return Calculator([f, r, v...] () {r->set(f(v->get()...));});
         }
 
     public:
