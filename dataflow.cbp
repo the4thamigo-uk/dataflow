@@ -37,6 +37,7 @@
 		<Linker>
 			<Add library="pthread" />
 		</Linker>
+		<Unit filename="dataflow.hpp" />
 		<Unit filename="main.cpp" />
 		<Extensions>
 			<code_completion />
