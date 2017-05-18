@@ -8,10 +8,10 @@ The aims of the library are to :
 
 1) Provide a framework to construct a graph of dependent values (i.e. nodes) defined by the arguments and the return values of pure functions defined by the client
 2) a 'driven' model requiring a call to a calculate function, not an 'actor/event/responsive' model
-2) Provide a singlethreaded and multithreaded routine to calculate all the values in the graph in the correct order of dependency
-3) Avoid recomputing values that have not changed
-4) To allow the graph to be updated in between calculations
-5) Be statically type-safe throughout
-6) Strive for simplicity of use - Not necessarily of implementation
-7) Minimal dependencies
-8) Header only library
+3) Provide a singlethreaded and multithreaded routine to calculate all the values in the graph in the correct order of dependency
+4) Avoid recomputing values that have not changed
+5) To allow the graph to be updated in between calculations
+6) Be statically type-safe throughout
+7) Strive for simplicity of use - Not necessarily of implementation
+8) Minimal dependencies
+9) Header only library
