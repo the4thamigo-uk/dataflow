@@ -82,6 +82,9 @@ class graph {
     using Calculator = std::function<void()>;
     using NodePtrList = std::vector<NodePtr>;
 
+    template<typename T>
+    using ValuePtrList = std::vector<ValuePtr<T>>;
+
     std::map<NodePtr, Calculator> _functions;
     std::map<NodePtr, NodePtrList> _children;
     std::map<NodePtr, int> _nodeLevels;
@@ -97,8 +100,39 @@ class graph {
                 });
         }
 
-
     public:
+
+        template<template<typename, typename> typename C1, typename A1, template<typename, typename> typename C2, typename A2, typename R, typename V>
+        auto bind(std::function<R(const C1<V, A1>&)> f,
+                  ValuePtr<R> r,
+                  const C2<ValuePtr<V>, A2>& args) {
+            return [f, r, args](){
+                C1<V, A1> vs;
+                std::transform(args.begin(), args.end(), std::back_inserter(vs), [](auto v) {return v->get();});
+                r->set(f(vs));
+                return r;
+            };
+        }
+
+
+        template<template<typename, typename> typename C1, typename A1, template<typename, typename> typename C2, typename A2, typename R, typename V>
+        auto attach2(std::function<R(const C1<V, A1>&)> f, const C2<ValuePtr<V>, A2>& args) {
+            auto r = std::make_shared<Value<R>>();
+            _functions[r] = bind(f, r, args);
+
+            auto rn = std::static_pointer_cast<Node>(r);
+            std::for_each(args.begin(), args.end(), [this, rn] (auto arg) {_children[arg].push_back(rn);});
+
+            // TODO assert all args are in the nodes of this graph
+
+            std::vector<int> levels;
+            std::transform(args.begin(), args.end(), std::back_inserter(levels), [this](auto arg){ return _nodeLevels.find(arg)->second;});
+            auto maxLevel = std::max_element(levels.cbegin(), levels.cend());
+            auto level = maxLevel == levels.end() ? 0 : *maxLevel + 1;
+            _nodeLevels[r] = level;
+            _levels[level].push_back(r);
+            return r;
+        }
 
         template<typename F, typename ...V> auto attach(const F& f, ValuePtr<V> ... v) {
             using R = decltype(f(v->get()...));

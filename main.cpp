@@ -1,5 +1,7 @@
 #include <iostream>
 #include <experimental/optional>
+#include <limits>
+#include <cmath>
 #include "dataflow.hpp"
 using namespace std;
 
@@ -9,28 +11,11 @@ using namespace std;
 //
 
 
-
-/*
-
-    try {
-        return Value(f());
-    } catch(const std::exception& e) {
-        return Value(std::optional<T>(), e);
-    }
-
-
-*/
-
-struct X {
-    X() = delete;
-};
-
-typedef std::experimental::optional<X> x;
-
+const auto NaN = std::numeric_limits<double>::quiet_NaN();
 
 int main()
 {
-    typedef std::pair<double, double> Quote;
+    using Quote = std::pair<double, double>;
 
     auto fquote = [](double mid, double spread) {
         return Quote{mid - spread, mid+spread};
@@ -48,30 +33,44 @@ int main()
         return Quote{quote.first+shift, quote.second+shift};
     };
 
+    auto fmaxquote = [](const std::vector<Quote>& quotesMap) {
+                        Quote maxQuote = Quote{NaN, NaN};
+                        for(const auto& quote : quotesMap) {
+                            maxQuote.first = std::isnan(maxQuote.first) ? quote.first : std::min(maxQuote.first, quote.first);
+                            maxQuote.second = std::isnan(maxQuote.second) ? quote.second : std::max(maxQuote.second, quote.second);
+                        }
+                        return maxQuote; };
+
     dataflow::graph g;
     auto mid = g.attach([]() {return 1.0;});
     auto spread = g.attach([]() {return 0.1;});
     auto shift = g.attach([]() {return 0.5;});
 
-    std::map<std::string, dataflow::ValuePtr<Quote>> quotes;
-    quotes["1"] = g.attach(fquote, mid, spread);
-    quotes["2"] = g.attach(fwiden, quotes["1"], spread);
-    quotes["3"] = g.attach(fwiden, quotes["2"], spread);
-    quotes["4"] = g.attach(fshift, quotes["2"], shift);
-    quotes["5"] = g.attach(fwiden, quotes["3"], spread);
-    quotes["6"] = g.attach(fspan, quotes["5"], quotes["2"]);
 
-    g.calculate_multithreaded();
+    std::map<std::string, dataflow::ValuePtr<Quote>> quotesMap;
+    quotesMap["1"] = g.attach(fquote, mid, spread);
+    quotesMap["2"] = g.attach(fwiden, quotesMap["1"], spread);
+    quotesMap["3"] = g.attach(fwiden, quotesMap["2"], spread);
+    quotesMap["4"] = g.attach(fshift, quotesMap["2"], shift);
+    quotesMap["5"] = g.attach(fwiden, quotesMap["3"], spread);
+    quotesMap["6"] = g.attach(fspan, quotesMap["5"], quotesMap["2"]);
 
-    quotes["2"]->clear();
+    std::vector<dataflow::ValuePtr<Quote>> quotes;
+    std::transform(quotesMap.begin(), quotesMap.end(), std::back_inserter(quotes), [](auto& kv) { return kv.second; });
+    std::function<Quote(const std::vector<Quote>&)> f = fmaxquote;
+    quotesMap["max"] = g.attach2(f, quotes);
 
-    g.calculate_multithreaded();
+    g.calculate();
 
-    quotes["3"]->clear();
+    quotesMap["2"]->clear();
 
-    g.calculate_multithreaded();
+    g.calculate();
 
-    for(const auto& quote: quotes) {
+    quotesMap["3"]->clear();
+
+    g.calculate();
+
+    for(const auto& quote: quotesMap) {
         cout << quote.second->count() << " - " << quote.first << ":" << quote.second->get().first << "," << quote.second->get().second << endl;
     }
 
