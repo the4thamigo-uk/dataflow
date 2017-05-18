@@ -7,6 +7,7 @@ The idea is inspired by various financial software systems that have this use ca
 The aims of the library are to :
 
 1) Provide a framework to construct a graph of dependent values (i.e. nodes) defined by the arguments and the return values of pure functions defined by the client
+2) a 'driven' model requiring a call to a calculate function, not an 'actor/event/responsive' model
 2) Provide a singlethreaded and multithreaded routine to calculate all the values in the graph in the correct order of dependency
 3) Avoid recomputing values that have not changed
 4) To allow the graph to be updated in between calculations
