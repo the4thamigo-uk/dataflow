@@ -100,8 +100,6 @@ class graph {
                 });
         }
 
-    public:
-
         template<template<typename, typename> typename C1, typename A1, template<typename, typename> typename C2, typename A2, typename R, typename V>
         auto bind(std::function<R(const C1<V, A1>&)> f,
                   ValuePtr<R> r,
@@ -114,13 +112,15 @@ class graph {
             };
         }
 
+    public:
 
-        template<template<typename, typename> typename C1, typename A1, template<typename, typename> typename C2, typename A2, typename R, typename V>
-        auto attach2(std::function<R(const C1<V, A1>&)> f, const C2<ValuePtr<V>, A2>& args) {
+        template<typename F, typename ...V> auto attach(const F& f, ValuePtr<V> ... v) {
+            using R = decltype(f(v->get()...));
             auto r = std::make_shared<Value<R>>();
-            _functions[r] = bind(f, r, args);
+            _functions[r] = bind(f, r, v...);
 
             auto rn = std::static_pointer_cast<Node>(r);
+            auto args = std::initializer_list<NodePtr>{std::static_pointer_cast<Node>(v)...};
             std::for_each(args.begin(), args.end(), [this, rn] (auto arg) {_children[arg].push_back(rn);});
 
             // TODO assert all args are in the nodes of this graph
@@ -134,13 +134,12 @@ class graph {
             return r;
         }
 
-        template<typename F, typename ...V> auto attach(const F& f, ValuePtr<V> ... v) {
-            using R = decltype(f(v->get()...));
+        template<template<typename, typename> typename C1, typename A1, template<typename, typename> typename C2, typename A2, typename R, typename V>
+        auto attach(std::function<R(const C1<V, A1>&)> f, const C2<ValuePtr<V>, A2>& args) {
             auto r = std::make_shared<Value<R>>();
-            _functions[r] = bind(f, r, v...);
+            _functions[r] = bind(f, r, args);
 
             auto rn = std::static_pointer_cast<Node>(r);
-            auto args = std::initializer_list<NodePtr>{std::static_pointer_cast<Node>(v)...};
             std::for_each(args.begin(), args.end(), [this, rn] (auto arg) {_children[arg].push_back(rn);});
 
             // TODO assert all args are in the nodes of this graph

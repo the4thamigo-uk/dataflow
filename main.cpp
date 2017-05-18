@@ -33,7 +33,7 @@ int main()
         return Quote{quote.first+shift, quote.second+shift};
     };
 
-    auto fmaxquote = [](const std::vector<Quote>& quotesMap) {
+    auto fwidest = [](const std::vector<Quote>& quotesMap) {
                         Quote maxQuote = Quote{NaN, NaN};
                         for(const auto& quote : quotesMap) {
                             maxQuote.first = std::isnan(maxQuote.first) ? quote.first : std::min(maxQuote.first, quote.first);
@@ -57,8 +57,8 @@ int main()
 
     std::vector<dataflow::ValuePtr<Quote>> quotes;
     std::transform(quotesMap.begin(), quotesMap.end(), std::back_inserter(quotes), [](auto& kv) { return kv.second; });
-    std::function<Quote(const std::vector<Quote>&)> f = fmaxquote;
-    quotesMap["max"] = g.attach2(f, quotes);
+    std::function<Quote(const std::vector<Quote>&)> f = fwidest;
+    quotesMap["max"] = g.attach(f, quotes);
 
     g.calculate();
 
