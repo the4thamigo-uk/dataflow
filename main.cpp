@@ -53,13 +53,13 @@ int main()
     auto spread = g.attach([]() {return 0.1;});
     auto shift = g.attach([]() {return 0.5;});
 
-    std::map<std::string, std::shared_ptr<dataflow::Value<Quote>>> quotes;
+    std::map<std::string, dataflow::ValuePtr<Quote>> quotes;
     quotes["1"] = g.attach(fquote, mid, spread);
     quotes["2"] = g.attach(fwiden, quotes["1"], spread);
     quotes["3"] = g.attach(fwiden, quotes["2"], spread);
     quotes["4"] = g.attach(fshift, quotes["2"], shift);
     quotes["5"] = g.attach(fwiden, quotes["3"], spread);
-    quotes["6"] = g.attach(fshift, quotes["5"], shift);
+    quotes["6"] = g.attach(fspan, quotes["5"], quotes["2"]);
 
     g.calculate_multithreaded();
 

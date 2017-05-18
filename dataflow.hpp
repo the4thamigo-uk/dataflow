@@ -17,6 +17,10 @@ namespace dataflow {
 // TODO: consider how data is collated e.g. aggregate all prices into a single map
 // TODO: Add unit test framework
 
+
+template<typename T>
+using ptr = std::shared_ptr<T>;
+
 class Node {
 
     public:
@@ -26,6 +30,8 @@ class Node {
         virtual bool has_value() const = 0;
         virtual int count() const = 0;
 };
+
+using NodePtr = ptr<Node>;
 
 template<typename T> class Value : public Node {
 
@@ -68,20 +74,22 @@ template<typename T> class Value : public Node {
         }
 };
 
+template<typename T>
+using ValuePtr = ptr<Value<T>>;
+
 class graph {
 
-    typedef std::function<void()> Calculator;
+    using Calculator = std::function<void()>;
+    using NodePtrList = std::vector<NodePtr>;
 
-    std::map<std::shared_ptr<Node>, Calculator> _functions;
-
-    typedef std::vector<std::shared_ptr<Node>> NodeList;
-    std::map<std::shared_ptr<Node>, NodeList> _children;
-
-    std::map<std::shared_ptr<Node>, int> _nodeLevels;
-    std::map<int, NodeList> _levels;
+    std::map<NodePtr, Calculator> _functions;
+    std::map<NodePtr, NodePtrList> _children;
+    std::map<NodePtr, int> _nodeLevels;
+    std::map<int, NodePtrList> _levels;
 
     private:
-        template<typename F, typename R, typename... V> auto bind(const F& f, std::shared_ptr<Value<R>> r, std::shared_ptr<Value<V>> ... v) {
+        template<typename F, typename R, typename... V>
+        auto bind(const F& f, ValuePtr<R> r, ValuePtr<V> ... v) {
             return Calculator(
                 [f, r, v...] () {
                     r->set(f(v->get()...));
@@ -89,14 +97,16 @@ class graph {
                 });
         }
 
+
     public:
-        template<typename F, typename ...V> auto attach(const F& f, std::shared_ptr<Value<V>> ... v) {
-            typedef decltype(f(v->get()...)) R;
+
+        template<typename F, typename ...V> auto attach(const F& f, ValuePtr<V> ... v) {
+            using R = decltype(f(v->get()...));
             auto r = std::make_shared<Value<R>>();
             _functions[r] = bind(f, r, v...);
 
             auto rn = std::static_pointer_cast<Node>(r);
-            auto args = std::initializer_list<std::shared_ptr<Node>>{std::static_pointer_cast<Node>(v)...};
+            auto args = std::initializer_list<NodePtr>{std::static_pointer_cast<Node>(v)...};
             std::for_each(args.begin(), args.end(), [this, rn] (auto arg) {_children[arg].push_back(rn);});
 
             // TODO assert all args are in the nodes of this graph
