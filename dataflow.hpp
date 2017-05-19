@@ -8,12 +8,13 @@
 #include <algorithm>
 #include <utility>
 #include <future>
+#include <unordered_set>
 #include <experimental/optional>
 #include <memory>
 
 namespace dataflow {
 
-// TODO: consider how data is consumed, and marked as changed
+// TODO: consider how data is consumed, and marked as changed - can we pass in a vector of nodes into calculate() that have changed rather than maintain state
 // TODO: Add unit test framework
 // TODO: simplify attach() overloads
 // TODO: prune nodes
@@ -29,13 +30,14 @@ class Node {
 
     public:
         virtual ~Node() {};
-
-        virtual void clear() = 0;
         virtual bool has_value() const = 0;
         virtual int count() const = 0;
 };
 
 using NodePtr = ptr<Node>;
+using NodePtrList = std::vector<NodePtr>;
+using NodePtrSet = std::unordered_set<NodePtr>;
+
 
 template<typename T> class Value : public Node {
 
@@ -64,11 +66,6 @@ template<typename T> class Value : public Node {
             return _value.value();
         }
 
-        virtual void clear() {
-            _e = {};
-            _value = {};
-        }
-
         virtual bool has_value() const {
             return (bool)_value;
         }
@@ -81,13 +78,16 @@ template<typename T> class Value : public Node {
 template<typename T>
 using ValuePtr = ptr<Value<T>>;
 
+template<typename T>
+using ValuePtrList = std::vector<ValuePtr<T>>;
+
+template<typename T>
+using ValuePtrSet = std::unordered_set<ValuePtr<T>>;
+
+
 class graph {
 
     using Calculator = std::function<void()>;
-    using NodePtrList = std::vector<NodePtr>;
-
-    template<typename T>
-    using ValuePtrList = std::vector<ValuePtr<T>>;
 
     std::map<NodePtr, Calculator> _functions;
     std::map<NodePtr, NodePtrList> _children;
@@ -142,7 +142,7 @@ class graph {
             _functions[r] = bind(f, r, args);
 
             auto rn = std::static_pointer_cast<Node>(r);
-            std::for_each(args.begin(), args.end(), [this, rn] (auto arg) {_children[arg].push_back(rn);})
+            std::for_each(args.begin(), args.end(), [this, rn] (auto arg) {_children[arg].push_back(rn);});
 
             std::vector<int> levels;
             std::transform(args.begin(), args.end(), std::back_inserter(levels), [this](auto arg){ return _nodeLevels.find(arg)->second;});
@@ -153,36 +153,54 @@ class graph {
             return r;
         }
 
-        void calculate() {
+        template<typename Iter>
+        NodePtrSet descendents(Iter i1, Iter i2) {
+            NodePtrList nodes(i1, i2);
+            for(size_t i = 0; i < nodes.size(); i++) {
+                const NodePtrList& children = _children[nodes[i]];
+                nodes.insert(nodes.end(), children.begin(), children.end());
+            }
+
+            return NodePtrSet(nodes.begin(), nodes.end());
+        }
+
+        void calculate(const NodePtrSet& nodes) {
+            auto dirtyNodes = descendents(nodes.begin(), nodes.end());
             for(const auto& level : _levels) {
                 const auto& nodes = level.second;
 
                 for(const auto node : nodes) {
-                    if(!node->has_value()) {
-
-                        // mark next row dirty
-                        auto& children = _children[node];
-                        std::for_each(children.begin(), children.end(), [] (auto p) {p->clear();});
-
-                        // compute
+                    bool isDirty = dirtyNodes.find(node) != dirtyNodes.end();
+                    if(isDirty) {
                         _functions[node]();
                     };
                 }
+
             }
         }
 
-        void calculate_multithreaded() {
+        template<typename V>
+        void calculate(const ValuePtrSet<V>& dirtyNodes) {
+            calculate(NodePtrSet(dirtyNodes.begin(), dirtyNodes.end()));
+        }
+
+        void calculate(std::initializer_list<NodePtr> dirtyNodes) {
+            calculate(NodePtrSet(dirtyNodes));
+        }
+
+        template<typename V>
+        void calculate(std::initializer_list<ValuePtr<V>> dirtyNodes) {
+            calculate(NodePtrSet(dirtyNodes.begin(), dirtyNodes.end()));
+        }
+
+        void calculate_multithreaded(const NodePtrSet& nodes) {
+            auto dirtyNodes = descendents(nodes.begin(), nodes.end());
             for(const auto& level : _levels) {
                 const auto& nodes = level.second;
                 std::vector<std::future<void>> tasks;
                 for(auto node : nodes) {
-                    if(!node->has_value()) {
-
-                        // mark next row dirty
-                        auto& children = _children[node];
-                        std::for_each(children.begin(), children.end(), [] (auto p) {p->clear();});
-
-                        // compute
+                    bool isDirty = dirtyNodes.find(node) != dirtyNodes.end();
+                    if(isDirty) {
                         tasks.push_back(std::async(_functions[node]));
                     }
                 }

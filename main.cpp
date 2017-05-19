@@ -46,7 +46,6 @@ int main()
     auto spread = g.attach([]() {return 0.1;});
     auto shift = g.attach([]() {return 0.5;});
 
-
     std::map<std::string, dataflow::ValuePtr<Quote>> quotesMap;
     quotesMap["1"] = g.attach(fquote, mid, spread);
     quotesMap["2"] = g.attach(fwiden, quotesMap["1"], spread);
@@ -60,15 +59,15 @@ int main()
     std::function<Quote(const std::vector<Quote>&)> f = fwidest;
     quotesMap["max"] = g.attach(f, quotes);
 
-    g.calculate();
+    g.calculate({mid, spread, shift});
 
-    quotesMap["2"]->clear();
+    g.calculate({quotesMap["2"]});
 
-    g.calculate();
+    g.calculate({quotesMap["3"]});
 
-    quotesMap["3"]->clear();
+    g.calculate({quotesMap["5"]});
+    g.calculate({quotesMap["6"]});
 
-    g.calculate();
 
     for(const auto& quote: quotesMap) {
         cout << quote.second->count() << " - " << quote.first << ":" << quote.second->get().first << "," << quote.second->get().second << endl;
