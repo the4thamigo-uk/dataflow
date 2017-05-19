@@ -14,8 +14,12 @@
 namespace dataflow {
 
 // TODO: consider how data is consumed, and marked as changed
-// TODO: consider how data is collated e.g. aggregate all prices into a single map
 // TODO: Add unit test framework
+// TODO: simplify attach() overloads
+// TODO: prune nodes
+// TODO: assert all args are in the nodes of this graph, not another graph
+// TODO: can we import/export nodes from/to other graphs?
+// TODO: how would you express the graph in a declarative config file, how to move from the realm of type-unsafe config to type-safe c++
 
 
 template<typename T>
@@ -123,8 +127,6 @@ class graph {
             auto args = std::initializer_list<NodePtr>{std::static_pointer_cast<Node>(v)...};
             std::for_each(args.begin(), args.end(), [this, rn] (auto arg) {_children[arg].push_back(rn);});
 
-            // TODO assert all args are in the nodes of this graph
-
             std::vector<int> levels;
             std::transform(args.begin(), args.end(), std::back_inserter(levels), [this](auto arg){ return _nodeLevels.find(arg)->second;});
             auto maxLevel = std::max_element(levels.cbegin(), levels.cend());
@@ -140,9 +142,7 @@ class graph {
             _functions[r] = bind(f, r, args);
 
             auto rn = std::static_pointer_cast<Node>(r);
-            std::for_each(args.begin(), args.end(), [this, rn] (auto arg) {_children[arg].push_back(rn);});
-
-            // TODO assert all args are in the nodes of this graph
+            std::for_each(args.begin(), args.end(), [this, rn] (auto arg) {_children[arg].push_back(rn);})
 
             std::vector<int> levels;
             std::transform(args.begin(), args.end(), std::back_inserter(levels), [this](auto arg){ return _nodeLevels.find(arg)->second;});
