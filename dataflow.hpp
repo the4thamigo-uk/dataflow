@@ -11,6 +11,7 @@
 #include <unordered_set>
 #include <experimental/optional>
 #include <memory>
+#include <initializer_list>
 
 namespace dataflow {
 
@@ -116,16 +117,10 @@ class graph {
             };
         }
 
-    public:
+        void update(std::function<void()> f, NodePtr r, const NodePtrList& args) {
+            _functions[r] = f;
 
-        template<typename F, typename ...V> auto attach(const F& f, ValuePtr<V> ... v) {
-            using R = decltype(f(v->get()...));
-            auto r = std::make_shared<Value<R>>();
-            _functions[r] = bind(f, r, v...);
-
-            auto rn = std::static_pointer_cast<Node>(r);
-            auto args = std::initializer_list<NodePtr>{std::static_pointer_cast<Node>(v)...};
-            std::for_each(args.begin(), args.end(), [this, rn] (auto arg) {_children[arg].push_back(rn);});
+            std::for_each(args.begin(), args.end(), [this, r] (auto arg) {_children[arg].push_back(r);});
 
             std::vector<int> levels;
             std::transform(args.begin(), args.end(), std::back_inserter(levels), [this](auto arg){ return _nodeLevels.find(arg)->second;});
@@ -133,24 +128,6 @@ class graph {
             auto level = maxLevel == levels.end() ? 0 : *maxLevel + 1;
             _nodeLevels[r] = level;
             _levels[level].push_back(r);
-            return r;
-        }
-
-        template<template<typename, typename> typename C1, typename A1, template<typename, typename> typename C2, typename A2, typename R, typename V>
-        auto attach(std::function<R(const C1<V, A1>&)> f, const C2<ValuePtr<V>, A2>& args) {
-            auto r = std::make_shared<Value<R>>();
-            _functions[r] = bind(f, r, args);
-
-            auto rn = std::static_pointer_cast<Node>(r);
-            std::for_each(args.begin(), args.end(), [this, rn] (auto arg) {_children[arg].push_back(rn);});
-
-            std::vector<int> levels;
-            std::transform(args.begin(), args.end(), std::back_inserter(levels), [this](auto arg){ return _nodeLevels.find(arg)->second;});
-            auto maxLevel = std::max_element(levels.cbegin(), levels.cend());
-            auto level = maxLevel == levels.end() ? 0 : *maxLevel + 1;
-            _nodeLevels[r] = level;
-            _levels[level].push_back(r);
-            return r;
         }
 
         template<typename Iter>
@@ -164,6 +141,24 @@ class graph {
             return NodePtrSet(nodes.begin(), nodes.end());
         }
 
+    public:
+
+        template<typename F, typename ...V> auto attach(const F& f, ValuePtr<V> ... args) {
+            using R = decltype(f(args->get()...));
+            auto r = std::make_shared<Value<R>>();
+            auto g = bind(f, r, args...);
+            update(g, r, NodePtrList{std::initializer_list<NodePtr>{args...}});
+            return r;
+        }
+
+        template<template<typename, typename> typename C1, typename A1, template<typename, typename> typename C2, typename A2, typename R, typename V>
+        auto attach(std::function<R(const C1<V, A1>&)> f, const C2<ValuePtr<V>, A2>& args) {
+            auto r = std::make_shared<Value<R>>();
+            auto g = bind(f, r, args);
+            update(g, r, NodePtrList(args.begin(), args.end()));
+            return r;
+        }
+
         void calculate(const NodePtrSet& nodes) {
             auto dirtyNodes = descendents(nodes.begin(), nodes.end());
             for(const auto& level : _levels) {
@@ -175,22 +170,7 @@ class graph {
                         _functions[node]();
                     };
                 }
-
             }
-        }
-
-        template<typename V>
-        void calculate(const ValuePtrSet<V>& dirtyNodes) {
-            calculate(NodePtrSet(dirtyNodes.begin(), dirtyNodes.end()));
-        }
-
-        void calculate(std::initializer_list<NodePtr> dirtyNodes) {
-            calculate(NodePtrSet(dirtyNodes));
-        }
-
-        template<typename V>
-        void calculate(std::initializer_list<ValuePtr<V>> dirtyNodes) {
-            calculate(NodePtrSet(dirtyNodes.begin(), dirtyNodes.end()));
         }
 
         void calculate_multithreaded(const NodePtrSet& nodes) {
@@ -210,6 +190,21 @@ class graph {
                     });
             }
         }
+
+        template<typename V>
+        void calculate(const ValuePtrSet<V>& dirtyNodes) {
+            calculate(NodePtrSet(dirtyNodes.begin(), dirtyNodes.end()));
+        }
+
+        void calculate(std::initializer_list<NodePtr> dirtyNodes) {
+            calculate(NodePtrSet(dirtyNodes));
+        }
+
+        template<typename V>
+        void calculate(std::initializer_list<ValuePtr<V>> dirtyNodes) {
+            calculate(NodePtrSet(dirtyNodes.begin(), dirtyNodes.end()));
+        }
+
     };
 
 }
