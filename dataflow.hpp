@@ -15,14 +15,15 @@
 
 namespace dataflow {
 
-// TODO: consider how data is consumed, and marked as changed - can we pass in a vector of nodes into calculate() that have changed rather than maintain state
 // TODO: Add unit test framework
-// TODO: simplify attach() overloads
 // TODO: prune nodes
 // TODO: assert all args are in the nodes of this graph, not another graph
 // TODO: can we import/export nodes from/to other graphs?
 // TODO: how would you express the graph in a declarative config file, how to move from the realm of type-unsafe config to type-safe c++
-
+// TODO: calculate() method should be a selectable strategy
+// TODO: simplfy creation of root values which are currently functions
+// TODO: clang-tidy warnings
+// TODO: we dont need a graph object as such, just nodes and calculate functions.
 
 template<typename T>
 using ptr = std::shared_ptr<T>;
@@ -93,7 +94,7 @@ class graph {
     std::map<NodePtr, Calculator> _functions;
     std::map<NodePtr, NodePtrList> _children;
     std::map<NodePtr, int> _nodeLevels;
-    std::map<int, NodePtrList> _levels;
+    std::map<int, NodePtrList> _levels; // this can go
 
     private:
         template<typename F, typename R, typename... V>
@@ -165,8 +166,8 @@ class graph {
                 const auto& nodes = level.second;
 
                 for(const auto node : nodes) {
-                    bool isDirty = dirtyNodes.find(node) != dirtyNodes.end();
-                    if(isDirty) {
+                    bool needsCalc = !node.has_value() || dirtyNodes.find(node) != dirtyNodes.end();
+                    if(needsCalc) {
                         _functions[node]();
                     };
                 }
