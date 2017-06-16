@@ -27,25 +27,85 @@ namespace dataflow {
 
 template<typename T>
 using ptr = std::shared_ptr<T>;
+template<typename T>
+using wptr = std::weak_ptr<T>;
+
+using NodePtr = ptr<class Node>;
+using WeakNodePtr = wptr<class Node>;
+using NodePtrList = std::vector<NodePtr>;
+using NodePtrSet = std::unordered_set<NodePtr>;
+using WeakNodePtrList = std::vector<WeakNodePtr>;
+
+template<typename T> class Value;
+
+template<typename T>
+using ValuePtr = ptr<Value<T>>;
+
+template<typename T>
+using ValuePtrList = std::vector<ValuePtr<T>>;
+
+template<typename T>
+using ValuePtrSet = std::unordered_set<ValuePtr<T>>;
+
 
 class Node {
-
     public:
         virtual ~Node() {};
         virtual bool has_value() const = 0;
         virtual int count() const = 0;
+        virtual void calculate() = 0;
+        virtual int level() const = 0;
+        virtual void addChild(NodePtr p) = 0;
+        virtual NodePtrList children() const = 0;
+        virtual NodePtrList parents() const = 0;
 };
 
-using NodePtr = ptr<Node>;
-using NodePtrList = std::vector<NodePtr>;
-using NodePtrSet = std::unordered_set<NodePtr>;
+
+template<typename T> class Value :
+    public Node {
+
+    private:
+        std::function<void()> f_;
+        int level_;
+        WeakNodePtrList children_;
+        WeakNodePtrList parents_;
+
+        std::experimental::optional<T> _value;
+        std::experimental::optional<std::exception> _e;
+        int _count = 0;
+
+        void init(const NodePtrList& args) {
+            std::copy(args.begin(), args.end(), std::back_inserter(parents_));
+
+            auto deepestNode = std::max_element(args.begin(), args.end(), [] (auto p1, auto p2) { return p1->level() < p2->level();} );
+            level_ = deepestNode == args.end() ? 0 : (*deepestNode)->level() + 1;
+        }
 
 
-template<typename T> class Value : public Node {
+    public:
 
-    std::experimental::optional<T> _value;
-    std::experimental::optional<std::exception> _e;
-    int _count = 0;
+        template<typename F,  typename ...V>
+        Value(const F& f, ValuePtr<V> ... args) {
+            this->f_ = [this, f, args...]
+                            () {
+                                this->set(f(args->get()...));
+                            };
+
+            init(NodePtrList{std::initializer_list<NodePtr>{args...}});
+
+        }
+
+        template<template<typename, typename> typename C1, typename A1, template<typename, typename> typename C2, typename A2, typename R, typename V>
+        Value(std::function<R(const C1<V, A1>&)> f, const C2<ValuePtr<V>, A2>& args) {
+            this->f_ = [this, f, args]
+                () {
+                    C1<V, A1> vs;
+                    std::transform(args.begin(), args.end(), std::back_inserter(vs), [](auto v) {return v->get();});
+                    this->set(f(vs));
+                };
+
+            init(NodePtrList(args.begin(), args.end()));
+        }
 
     public:
 
@@ -68,146 +128,127 @@ template<typename T> class Value : public Node {
             return _value.value();
         }
 
-        virtual bool has_value() const {
+        virtual bool has_value() const override {
             return (bool)_value;
         }
 
-        virtual int count() const {
+        virtual int count() const override {
             return _count;
+        }
+
+        virtual void calculate() override {
+            f_();
+        }
+
+        virtual int level() const override {
+            return level_;
+        }
+
+        virtual void addChild(NodePtr p) override {
+            children_.push_back(p);
+        }
+
+        virtual NodePtrList children() const override {
+            NodePtrList nodes;
+            std::transform(children_.begin(), children_.end(), std::back_inserter(nodes), [](auto p) { return p.lock();} );
+            return nodes;
+        }
+
+        virtual NodePtrList parents() const override {
+            NodePtrList nodes;
+            std::transform(parents_.begin(), parents_.end(), std::back_inserter(nodes), [](auto p) { return p.lock();} );
+            return nodes;
         }
 };
 
-template<typename T>
-using ValuePtr = ptr<Value<T>>;
-
-template<typename T>
-using ValuePtrList = std::vector<ValuePtr<T>>;
-
-template<typename T>
-using ValuePtrSet = std::unordered_set<ValuePtr<T>>;
-
-
-class graph {
-
-    using Calculator = std::function<void()>;
-
-    std::map<NodePtr, Calculator> _functions;
-    std::map<NodePtr, NodePtrList> _children;
-    std::map<NodePtr, int> _nodeLevels;
-    std::map<int, NodePtrList> _levels; // this can go
-
-    private:
-        template<typename F, typename R, typename... V>
-        auto bind(const F& f, ValuePtr<R> r, ValuePtr<V> ... v) {
-            return Calculator(
-                [f, r, v...] () {
-                    r->set(f(v->get()...));
-                    return r;
-                });
-        }
-
-        template<template<typename, typename> typename C1, typename A1, template<typename, typename> typename C2, typename A2, typename R, typename V>
-        auto bind(std::function<R(const C1<V, A1>&)> f,
-                  ValuePtr<R> r,
-                  const C2<ValuePtr<V>, A2>& args) {
-            return [f, r, args](){
-                C1<V, A1> vs;
-                std::transform(args.begin(), args.end(), std::back_inserter(vs), [](auto v) {return v->get();});
-                r->set(f(vs));
-                return r;
-            };
-        }
-
-        void update(std::function<void()> f, NodePtr r, const NodePtrList& args) {
-            _functions[r] = f;
-
-            std::for_each(args.begin(), args.end(), [this, r] (auto arg) {_children[arg].push_back(r);});
-
-            std::vector<int> levels;
-            std::transform(args.begin(), args.end(), std::back_inserter(levels), [this](auto arg){ return _nodeLevels.find(arg)->second;});
-            auto maxLevel = std::max_element(levels.cbegin(), levels.cend());
-            auto level = maxLevel == levels.end() ? 0 : *maxLevel + 1;
-            _nodeLevels[r] = level;
-            _levels[level].push_back(r);
-        }
-
-        template<typename Iter>
-        NodePtrSet descendents(Iter i1, Iter i2) {
-            NodePtrList nodes(i1, i2);
-            for(size_t i = 0; i < nodes.size(); i++) {
-                const NodePtrList& children = _children[nodes[i]];
-                nodes.insert(nodes.end(), children.begin(), children.end());
-            }
-
-            return NodePtrSet(nodes.begin(), nodes.end());
-        }
-
-    public:
-
-        template<typename F, typename ...V> auto attach(const F& f, ValuePtr<V> ... args) {
-            using R = decltype(f(args->get()...));
-            auto r = std::make_shared<Value<R>>();
-            auto g = bind(f, r, args...);
-            update(g, r, NodePtrList{std::initializer_list<NodePtr>{args...}});
-            return r;
-        }
-
-        template<template<typename, typename> typename C1, typename A1, template<typename, typename> typename C2, typename A2, typename R, typename V>
-        auto attach(std::function<R(const C1<V, A1>&)> f, const C2<ValuePtr<V>, A2>& args) {
-            auto r = std::make_shared<Value<R>>();
-            auto g = bind(f, r, args);
-            update(g, r, NodePtrList(args.begin(), args.end()));
-            return r;
-        }
-
-        void calculate(const NodePtrSet& nodes) {
-            auto dirtyNodes = descendents(nodes.begin(), nodes.end());
-            for(const auto& level : _levels) {
-                const auto& nodes = level.second;
-
-                for(const auto node : nodes) {
-                    bool needsCalc = !node.has_value() || dirtyNodes.find(node) != dirtyNodes.end();
-                    if(needsCalc) {
-                        _functions[node]();
-                    };
-                }
-            }
-        }
-
-        void calculate_multithreaded(const NodePtrSet& nodes) {
-            auto dirtyNodes = descendents(nodes.begin(), nodes.end());
-            for(const auto& level : _levels) {
-                const auto& nodes = level.second;
-                std::vector<std::future<void>> tasks;
-                for(auto node : nodes) {
-                    bool isDirty = dirtyNodes.find(node) != dirtyNodes.end();
-                    if(isDirty) {
-                        tasks.push_back(std::async(_functions[node]));
-                    }
-                }
-                std::for_each(tasks.cbegin(), tasks.cend(),
-                    [](const auto& task) {
-                        task.wait();
-                    });
-            }
-        }
-
-        template<typename V>
-        void calculate(const ValuePtrSet<V>& dirtyNodes) {
-            calculate(NodePtrSet(dirtyNodes.begin(), dirtyNodes.end()));
-        }
-
-        void calculate(std::initializer_list<NodePtr> dirtyNodes) {
-            calculate(NodePtrSet(dirtyNodes));
-        }
-
-        template<typename V>
-        void calculate(std::initializer_list<ValuePtr<V>> dirtyNodes) {
-            calculate(NodePtrSet(dirtyNodes.begin(), dirtyNodes.end()));
-        }
-
-    };
-
+template<typename F, typename ...V>
+auto createValue(const F& f, ValuePtr<V> ... args) {
+    using R = decltype(f(args->get()...));
+    auto p = std::make_shared<Value<R>>(f, args...);
+    for(auto parent: p->parents()) {
+        parent->addChild(p);
+    }
+    return p;
 }
 
+template<template<typename, typename> typename C1, typename A1, template<typename, typename> typename C2, typename A2, typename R, typename V>
+auto createValue(std::function<R(const C1<V, A1>&)> f, const C2<ValuePtr<V>, A2>& args) {
+    auto p = std::make_shared<Value<R>>(f, args);
+    for(auto parent: p->parents()) {
+        parent->addChild(p);
+    }
+    return p;
+}
+
+NodePtrList descendents(NodePtrList nodes) {
+    for(size_t i = 0; i < nodes.size(); i++) {
+        const auto children = nodes[i]->children();
+        nodes.insert(nodes.end(), children.begin(), children.end());
+    }
+
+    std::sort(nodes.begin(), nodes.end());
+    auto last = std::unique(nodes.begin(), nodes.end());
+    nodes.erase(last, nodes.end());
+    std::sort(nodes.begin(), nodes.end(), [] (auto lhs, auto rhs) { return lhs->level() < rhs->level(); });
+
+
+    return nodes;
+}
+
+std::vector<NodePtrList> levels(const NodePtrList& nodes) {
+    std::vector<NodePtrList> levels;
+    for(auto it1 = nodes.begin(), it = it1; it != nodes.end(); it++) {
+        auto it2 = (it+1);
+        if( it2 == nodes.end() || (*it2)->level() != (*it1)->level()) {
+            levels.push_back(NodePtrList(it1, it2));
+            it1 = it2;
+        }
+    }
+    return levels;
+}
+
+
+void calculate(const NodePtrList& nodes) {
+    for(const auto level : levels(descendents(nodes))) {
+        for(const auto node : level) {
+            node->calculate();
+        }
+    }
+}
+
+/*
+void calculate_multithreaded(const NodePtrSet& nodes) {
+    auto dirtyNodes = Node::descendents(nodes.begin(), nodes.end());
+    for(const auto& level : _levels) {
+        const auto& nodes = level.second;
+        std::vector<std::future<void>> tasks;
+        for(auto node : nodes) {
+            bool isDirty = dirtyNodes.find(node) != dirtyNodes.end();
+            if(isDirty) {
+                tasks.push_back(std::async(_functions[node]));
+            }
+        }
+        std::for_each(tasks.cbegin(), tasks.cend(),
+            [](const auto& task) {
+                task.wait();
+            });
+    }
+}
+
+template<typename V>
+void calculate(const ValuePtrSet<V>& dirtyNodes) {
+    calculate(NodePtrSet(dirtyNodes.begin(), dirtyNodes.end()));
+}
+
+void calculate(std::initializer_list<NodePtr> dirtyNodes) {
+    calculate(NodePtrSet(dirtyNodes));
+}
+
+template<typename V>
+void calculate(std::initializer_list<ValuePtr<V>> dirtyNodes) {
+    calculate(NodePtrSet(dirtyNodes.begin(), dirtyNodes.end()));
+}
+
+*/
+}
 #endif // _\DATAFLOW_HPP_INCLUDED

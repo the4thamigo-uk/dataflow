@@ -41,36 +41,36 @@ int main()
                         }
                         return maxQuote; };
 
-    dataflow::graph g;
-    auto mid = g.attach([]() {return 1.0;});
-    auto spread = g.attach([]() {return 0.1;});
-    auto shift = g.attach([]() {return 0.5;});
+    auto mid = dataflow::createValue([]() {return 1.0;});
+    auto spread = dataflow::createValue([]() {return 0.1;});
+    auto shift = dataflow::createValue([]() {return 0.5;});
 
     std::map<std::string, dataflow::ValuePtr<Quote>> quotesMap;
-    quotesMap["1"] = g.attach(fquote, mid, spread);
-    quotesMap["2"] = g.attach(fwiden, quotesMap["1"], spread);
-    quotesMap["3"] = g.attach(fwiden, quotesMap["2"], spread);
-    quotesMap["4"] = g.attach(fshift, quotesMap["2"], shift);
-    quotesMap["5"] = g.attach(fwiden, quotesMap["3"], spread);
-    quotesMap["6"] = g.attach(fspan, quotesMap["5"], quotesMap["2"]);
+    quotesMap["1"] = dataflow::createValue(fquote, mid, spread);
+    quotesMap["2"] = dataflow::createValue(fwiden, quotesMap["1"], spread);
+    quotesMap["3"] = dataflow::createValue(fwiden, quotesMap["2"], spread);
+    quotesMap["4"] = dataflow::createValue(fshift, quotesMap["2"], shift);
+    quotesMap["5"] = dataflow::createValue(fwiden, quotesMap["3"], spread);
+    quotesMap["6"] = dataflow::createValue(fspan, quotesMap["5"], quotesMap["2"]);
 
     std::vector<dataflow::ValuePtr<Quote>> quotes;
     std::transform(quotesMap.begin(), quotesMap.end(), std::back_inserter(quotes), [](auto& kv) { return kv.second; });
     std::function<Quote(const std::vector<Quote>&)> f = fwidest;
-    quotesMap["max"] = g.attach(f, quotes);
+    quotesMap["max"] = dataflow::createValue(f, quotes);
 
-    g.calculate({mid, spread, shift});
-
-    g.calculate({quotesMap["2"]});
-
-    g.calculate({quotesMap["3"]});
-
-    g.calculate({quotesMap["5"]});
-    g.calculate({quotesMap["6"]});
+    dataflow::calculate({mid, spread, shift});
+    dataflow::calculate({quotesMap["2"]});
+    dataflow::calculate({quotesMap["3"]});
+    dataflow::calculate({quotesMap["5"]});
+    dataflow::calculate({quotesMap["6"]});
 
 
+    std::cout << std::endl;
     for(const auto& quote: quotesMap) {
-        cout << quote.second->count() << " - " << quote.first << ":" << quote.second->get().first << "," << quote.second->get().second << endl;
+        cout << quote.second->count() << " - " << quote.first << ":" <<
+            (quote.second->has_value() ? quote.second->get().first : -1.0) <<
+            "," <<
+            (quote.second->has_value() ? quote.second->get().second : -1.0) << endl;
     }
 
     return 0;
