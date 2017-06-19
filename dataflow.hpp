@@ -180,29 +180,28 @@ auto createValue(std::function<R(const C1<V, A1>&)> f, const C2<ValuePtr<V>, A2>
     return p;
 }
 
-NodePtrList descendents(NodePtrList nodes) {
-    for(size_t i = 0; i < nodes.size(); i++) {
-        const auto children = nodes[i]->children();
-        nodes.insert(nodes.end(), children.begin(), children.end());
+template<typename C>
+NodePtrSet descendents(const C& nodes) {
+    NodePtrList roots(std::begin(nodes), std::end(nodes));
+    NodePtrSet descendents(std::begin(nodes), std::end(nodes));
+
+    for(size_t i = 0; i < roots.size(); i++) {
+        for(auto child: roots[i]->children()) {
+            if( descendents.find(child) == descendents.end() ) {
+                descendents.insert(child);
+                roots.push_back(child);
+            }
+        }
     }
 
-    std::sort(nodes.begin(), nodes.end());
-    auto last = std::unique(nodes.begin(), nodes.end());
-    nodes.erase(last, nodes.end());
-    std::sort(nodes.begin(), nodes.end(), [] (auto lhs, auto rhs) { return lhs->level() < rhs->level(); });
-
-
-    return nodes;
+    return descendents;
 }
 
-std::vector<NodePtrList> levels(const NodePtrList& nodes) {
-    std::vector<NodePtrList> levels;
-    for(auto it1 = nodes.begin(), it = it1; it != nodes.end(); it++) {
-        auto it2 = (it+1);
-        if( it2 == nodes.end() || (*it2)->level() != (*it1)->level()) {
-            levels.push_back(NodePtrList(it1, it2));
-            it1 = it2;
-        }
+template<typename C>
+std::map<int, NodePtrSet> levels(const C& nodes) {
+    std::map<int, NodePtrSet> levels;
+    for(auto node: nodes) {
+        levels[node->level()].insert(node);
     }
     return levels;
 }
@@ -210,7 +209,7 @@ std::vector<NodePtrList> levels(const NodePtrList& nodes) {
 
 void calculate(const NodePtrList& nodes) {
     for(const auto level : levels(descendents(nodes))) {
-        for(const auto node : level) {
+        for(const auto node : level.second) {
             node->calculate();
         }
     }
